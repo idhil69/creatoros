@@ -789,9 +789,25 @@ function OnAir({
             </a>
           </div>
           <p className="mt-2 text-[10px] leading-relaxed text-red-600">
-            Masukkan Server + Key ke aplikasi encoder (Larix Broadcaster / PRISM / OBS). Siaran otomatis on-air saat encoder terhubung, dan otomatis
-            berakhir saat encoder berhenti. Chat & penonton di bawah adalah data YouTube sungguhan.
+            Key ini <b>PERMANEN</b> (sama untuk semua siaran berikutnya). Atur sekali di target multistream Livepeer (atau isi API Key untuk otomatis),
+            maka setiap live: kamera HP → Livepeer → YouTube tanpa OBS. Siaran on-air otomatis saat data video masuk, dan berakhir otomatis saat
+            berhenti. Chat & penonton di bawah adalah data YouTube sungguhan.
           </p>
+          {stream.external.youtube.ingest && (
+            <p
+              className={`mt-2 rounded-lg px-2 py-1.5 text-[11px] font-bold ${
+                stream.external.youtube.ingest.streamStatus === "active"
+                  ? "bg-green-100 text-green-700"
+                  : "bg-orange-100 text-orange-700"
+              }`}
+            >
+              {stream.external.youtube.ingest.streamStatus === "active"
+                ? `✅ YouTube MENERIMA data video (${stream.external.youtube.ingest.health}) — on-air ${
+                    stream.external.youtube.ingest.lifeCycle === "live" ? "SEKARANG 🔴" : "sebentar lagi…"
+                  }`
+                : "⏳ YouTube BELUM menerima data video — penerusan Livepeer → YouTube belum jalan. Cek: API Key Livepeer terisi? Target multistream Online di dashboard Livepeer?"}
+            </p>
+          )}
           {stream.external.youtube.lastError && (
             <p className="mt-1 rounded bg-white px-2 py-1 text-[10px] text-orange-700">⚠️ {stream.external.youtube.lastError}</p>
           )}

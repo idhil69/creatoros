@@ -56,7 +56,35 @@ async function ytFetch(token: string, path: string, init?: RequestInit) {
   return j;
 }
 
-/** Buat broadcast + stream RTMP asli di YouTube. Auto-start saat encoder terhubung. */
+const PERSISTENT_STREAM_TITLE = "CreatorOS Persistent";
+
+type YtStreamItem = {
+  id: string;
+  snippet?: { title?: string };
+  cdn?: { ingestionInfo?: { ingestionAddress?: string; streamName?: string } };
+};
+
+/**
+ * Ambil (atau buat sekali) stream RTMP PERMANEN "CreatorOS Persistent".
+ * Kuncinya TIDAK berubah antar siaran → target multistream Livepeer cukup diatur sekali.
+ */
+async function ytGetOrCreatePersistentStream(token: string): Promise<YtStreamItem> {
+  const list = await ytFetch(token, "/liveStreams?part=snippet,cdn&mine=true&maxResults=50");
+  const existing = (list.items as YtStreamItem[] | undefined)?.find(
+    (s) => s.snippet?.title === PERSISTENT_STREAM_TITLE,
+  );
+  if (existing?.cdn?.ingestionInfo?.streamName) return existing;
+
+  return (await ytFetch(token, "/liveStreams?part=snippet,cdn", {
+    method: "POST",
+    body: JSON.stringify({
+      snippet: { title: PERSISTENT_STREAM_TITLE },
+      cdn: { ingestionType: "rtmp", resolution: "variable", frameRate: "variable" },
+    }),
+  })) as YtStreamItem;
+}
+
+/** Buat broadcast baru, tapi BIND ke stream permanen (key YouTube stabil selamanya). */
 export async function ytCreateBroadcast(token: string, title: string, description: string) {
   const broadcast = await ytFetch(token, "/liveBroadcasts?part=snippet,contentDetails,status", {
     method: "POST",
@@ -67,13 +95,7 @@ export async function ytCreateBroadcast(token: string, title: string, descriptio
     }),
   });
 
-  const stream = await ytFetch(token, "/liveStreams?part=snippet,cdn", {
-    method: "POST",
-    body: JSON.stringify({
-      snippet: { title: `CreatorOS — ${title.slice(0, 80)}` },
-      cdn: { ingestionType: "rtmp", resolution: "variable", frameRate: "variable" },
-    }),
-  });
+  const stream = await ytGetOrCreatePersistentStream(token);
 
   await ytFetch(token, `/liveBroadcasts/bind?id=${broadcast.id}&streamId=${stream.id}&part=id`, { method: "POST" });
 
@@ -132,6 +154,22 @@ export async function ytStats(token: string, videoId: string) {
     viewers: v?.liveStreamingDetails?.concurrentViewers ? Number(v.liveStreamingDetails.concurrentViewers) : 0,
     likes: v?.statistics?.likeCount ? Number(v.statistics.likeCount) : 0,
     actualStartTime: v?.liveStreamingDetails?.actualStartTime as string | undefined,
+  };
+}
+
+/** Status ingest asli dari YouTube: apakah data video benar-benar masuk? */
+export async function ytIngestStatus(token: string, broadcastId: string) {
+  const b = await ytFetch(token, `/liveBroadcasts?part=contentDetails,status&id=${broadcastId}`);
+  const item = b.items?.[0];
+  const lifeCycle = (item?.status?.lifeCycleStatus ?? "unknown") as string;
+  const boundStreamId = item?.contentDetails?.boundStreamId as string | undefined;
+  if (!boundStreamId) return { lifeCycle, streamStatus: "unknown", health: "noData" };
+  const s = await ytFetch(token, `/liveStreams?part=status&id=${boundStreamId}`);
+  const st = s.items?.[0]?.status;
+  return {
+    lifeCycle,
+    streamStatus: (st?.streamStatus ?? "unknown") as string, // active | ready | inactive | error
+    health: (st?.healthStatus?.status ?? "noData") as string, // good | ok | bad | noData
   };
 }
 

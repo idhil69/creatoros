@@ -92,6 +92,7 @@ export type LiveExternal = {
     nextPageToken?: string;
     lastPollAt?: number;
     lastError?: string;
+    ingest?: { lifeCycle: string; streamStatus: string; health: string };
   };
 };
 

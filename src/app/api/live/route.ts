@@ -8,7 +8,7 @@ import {
   type StreamHealth,
   type LiveExternal,
 } from "@/db/schema";
-import { googleAccessToken, ytCreateBroadcast, ytEndBroadcast, ytPollChat, ytSendChat, ytStats } from "@/lib/live-youtube";
+import { googleAccessToken, ytCreateBroadcast, ytEndBroadcast, ytIngestStatus, ytPollChat, ytSendChat, ytStats } from "@/lib/live-youtube";
 import { desc, eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -81,6 +81,11 @@ export async function GET() {
         const s = await ytStats(token, external.youtube.videoId);
         breakdown.youtube = s.viewers;
         if (s.likes > likes) likes = s.likes;
+        try {
+          external.youtube.ingest = await ytIngestStatus(token, external.youtube.broadcastId);
+        } catch {
+          /* diagnosa opsional */
+        }
         external.youtube.lastError = undefined;
       }
     } catch (e) {
