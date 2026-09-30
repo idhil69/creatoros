@@ -28,7 +28,12 @@ export async function POST(req: Request) {
   if (listRes.status === 401 || listRes.status === 403) {
     return NextResponse.json({ error: "Livepeer API key tidak valid (Developers → API Keys)" }, { status: 401 });
   }
-  const streams = (await listRes.json()) as { id: string; streamKey?: string; name?: string }[];
+  const streams = (await listRes.json()) as {
+    id: string;
+    streamKey?: string;
+    name?: string;
+    profiles?: { name: string; bitrate?: number }[];
+  }[];
   if (!Array.isArray(streams)) return NextResponse.json({ error: "Gagal membaca daftar stream Livepeer" }, { status: 502 });
 
   const stream = streams.find((s) => s.streamKey === body.livepeerStreamKey.trim());
@@ -36,14 +41,40 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Stream dengan key tersebut tidak ditemukan di akun Livepeer ini" }, { status: 404 });
   }
 
-  // 2) Set multistream target (ganti semua target lama dengan target baru → key YouTube selalu segar)
+  // 2) Pilih profil TRANSCODED (H.264) — WAJIB untuk ingest WebRTC:
+  //    browser umumnya mengirim VP8, dan YouTube RTMP hanya menerima H.264.
+  //    Profil "source" hanya aman untuk ingest RTMP; transcoded selalu H.264.
+  let profiles = stream.profiles ?? [];
+  if (!profiles.length) {
+    // Stream tanpa profil transcoding → tambahkan dulu agar ada rendition H.264
+    profiles = [
+      { name: "720p0", bitrate: 3000000 },
+      { name: "480p0", bitrate: 1600000 },
+      { name: "360p0", bitrate: 800000 },
+    ];
+    await fetch(`https://livepeer.studio/api/stream/${stream.id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({
+        profiles: [
+          { name: "720p0", bitrate: 3000000, fps: 30, width: 1280, height: 720 },
+          { name: "480p0", bitrate: 1600000, fps: 30, width: 854, height: 480 },
+          { name: "360p0", bitrate: 800000, fps: 30, width: 640, height: 360 },
+        ],
+      }),
+    });
+  }
+  const best = [...profiles].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+  const targetProfile = best?.name ?? "720p0";
+
+  // 3) Set multistream target (ganti target lama → key YouTube selalu segar)
   const targetUrl = `${body.rtmpUrl.replace(/\/$/, "")}/${body.streamKey}`;
   const patchRes = await fetch(`https://livepeer.studio/api/stream/${stream.id}`, {
     method: "PATCH",
     headers: auth,
     body: JSON.stringify({
       multistream: {
-        targets: [{ profile: "source", spec: { name: body.targetName || "CreatorOS Target", url: targetUrl } }],
+        targets: [{ profile: targetProfile, spec: { name: body.targetName || "CreatorOS Target", url: targetUrl } }],
       },
     }),
   });
@@ -52,5 +83,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Gagal mengatur multistream: ${t.slice(0, 100)}` }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, streamId: stream.id, target: body.targetName });
+  return NextResponse.json({ ok: true, streamId: stream.id, target: body.targetName, profile: targetProfile });
 }

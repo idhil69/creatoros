@@ -586,8 +586,20 @@ function OnAir({
       // 3) Transceiver sendonly sesuai contoh resmi
       const vTrack = s.getVideoTracks()[0] ?? null;
       const aTrack = s.getAudioTracks()[0] ?? null;
-      if (vTrack) pc.addTransceiver(vTrack, { direction: "sendonly" });
+      const vTransceiver = vTrack ? pc.addTransceiver(vTrack, { direction: "sendonly" }) : null;
       if (aTrack) pc.addTransceiver(aTrack, { direction: "sendonly" });
+
+      // 3b) Prioritaskan H.264 (YouTube RTMP hanya menerima H.264; default browser sering VP8)
+      try {
+        const caps = RTCRtpSender.getCapabilities?.("video");
+        if (caps && vTransceiver?.setCodecPreferences) {
+          const h264 = caps.codecs.filter((c) => /h264/i.test(c.mimeType));
+          const rest = caps.codecs.filter((c) => !/h264/i.test(c.mimeType));
+          if (h264.length) vTransceiver.setCodecPreferences([...h264, ...rest]);
+        }
+      } catch {
+        /* opsional — Livepeer tetap mentranscode ke H.264 di profil rendition */
+      }
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
