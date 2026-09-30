@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #b45309;
+  --color-primary-dark: #92400e;
+  --color-secondary: #fbbf24;
+  --color-accent: #ea580c;
+  --color-surface: #fffbeb;
+  --color-surface-2: #fef3c7;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--color-surface);
+  color: #1c1917;
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+.card {
+  @apply bg-white rounded-xl border border-amber-100 shadow-[0_1px_2px_rgba(180,83,9,0.06)];
+}
+
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-outline,
+.btn-ghost,
+.btn-danger {
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none;
+}
+.btn-primary {
+  @apply bg-primary text-white hover:bg-primary-dark;
+}
+.btn-secondary {
+  @apply bg-secondary text-amber-950 hover:bg-amber-300;
+}
+.btn-outline {
+  @apply border border-amber-300 text-primary bg-white hover:bg-amber-50;
+}
+.btn-ghost {
+  @apply text-primary hover:bg-amber-100;
+}
+.btn-danger {
+  @apply bg-red-600 text-white hover:bg-red-700;
+}
+
+.input {
+  @apply w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-amber-200 placeholder:text-stone-400;
+}
+
+.chip {
+  @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fade-up 0.25s ease-out both;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.sheet-up {
+  animation: sheet-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}

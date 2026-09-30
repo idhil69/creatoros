@@ -1,0 +1,39 @@
+{
+  "packageId": "com.creatoros.app",
+  "host": "YOUR-DOMAIN.example.com",
+  "name": "CreatorOS",
+  "launcherName": "CreatorOS",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#b45309",
+  "themeColorDark": "#92400e",
+  "navigationColor": "#ffffff",
+  "navigationColorDark": "#1c1917",
+  "backgroundColor": "#fffbeb",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://YOUR-DOMAIN.example.com/icons/icon-512.png",
+  "maskableIconUrl": "https://YOUR-DOMAIN.example.com/icons/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "creatoros"
+  },
+  "appVersionName": "1.0.0-alpha",
+  "appVersionCode": 1,
+  "shortcuts": [
+    { "name": "Postingan baru", "shortName": "Posting", "url": "/content/new", "chosenIconUrl": "https://YOUR-DOMAIN.example.com/icons/icon-192.png" },
+    { "name": "Live Center", "shortName": "Live", "url": "/live", "chosenIconUrl": "https://YOUR-DOMAIN.example.com/icons/icon-192.png" }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://YOUR-DOMAIN.example.com/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": { "enabled": false },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://YOUR-DOMAIN.example.com/",
+  "minSdkVersion": 21,
+  "orientationLock": "portrait"
+}
