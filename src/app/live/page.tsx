@@ -559,95 +559,11 @@ function OnAir({
   const [tick, setTick] = useState(0);
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // ===== Livepeer WebRTC (WHIP) — siaran riil langsung dari browser =====
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const [whipStatus, setWhipStatus] = useState<"idle" | "connecting" | "live" | "error">("idle");
-  const [whipError, setWhipError] = useState("");
-
-  const handleStreamReady = useCallback(async (s: MediaStream) => {
-    const key = localStorage.getItem("livepeerKey")?.trim();
-    if (!key || pcRef.current) return; // tanpa key = simulasi/encoder eksternal
-    setWhipStatus("connecting");
-    try {
-      // 1) Sesuai docs Livepeer: HEAD request dulu untuk dapat URL server region terdekat (redirect GeoDNS)
-      const headRes = await fetch(`https://livepeer.studio/webrtc/${key}`, { method: "HEAD" });
-      const redirectUrl = headRes.url && headRes.url.includes("/webrtc/") ? headRes.url : `https://livepeer.studio/webrtc/${key}`;
-      const host = new URL(redirectUrl).host;
-
-      // 2) STUN/TURN milik Livepeer WAJIB untuk broadcasting (bukan STUN Google)
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: `stun:${host}` },
-          { urls: `turn:${host}`, username: "livepeer", credential: "livepeer" },
-        ],
-      });
-      pcRef.current = pc;
-
-      // 3) Transceiver sendonly sesuai contoh resmi
-      const vTrack = s.getVideoTracks()[0] ?? null;
-      const aTrack = s.getAudioTracks()[0] ?? null;
-      const vTransceiver = vTrack ? pc.addTransceiver(vTrack, { direction: "sendonly" }) : null;
-      if (aTrack) pc.addTransceiver(aTrack, { direction: "sendonly" });
-
-      // 3b) Prioritaskan H.264 (YouTube RTMP hanya menerima H.264; default browser sering VP8)
-      try {
-        const caps = RTCRtpSender.getCapabilities?.("video");
-        if (caps && vTransceiver?.setCodecPreferences) {
-          const h264 = caps.codecs.filter((c) => /h264/i.test(c.mimeType));
-          const rest = caps.codecs.filter((c) => !/h264/i.test(c.mimeType));
-          if (h264.length) vTransceiver.setCodecPreferences([...h264, ...rest]);
-        }
-      } catch {
-        /* opsional — Livepeer tetap mentranscode ke H.264 di profil rendition */
-      }
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      // 4) Tunggu ICE gathering (maks 5 dtk, sesuai docs)
-      const ofr = await new Promise<RTCSessionDescription | null>((resolve) => {
-        setTimeout(() => resolve(pc.localDescription), 5000);
-        pc.onicegatheringstatechange = () => {
-          if (pc.iceGatheringState === "complete") resolve(pc.localDescription);
-        };
-      });
-      if (!ofr) throw new Error("Gagal mengumpulkan ICE candidates");
-
-      // 5) POST SDP ke URL redirect (tanpa header Authorization — tidak dipakai Livepeer WHIP)
-      const whipRes = await fetch(redirectUrl, {
-        method: "POST",
-        mode: "cors",
-        headers: { "Content-Type": "application/sdp" },
-        body: ofr.sdp,
-      });
-      if (!whipRes.ok) {
-        const errText = await whipRes.text();
-        throw new Error(`Ditolak server Livepeer (${whipRes.status}): ${errText.substring(0, 60)}`);
-      }
-      await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: await whipRes.text() }));
-
-      // 6) Pantau status koneksi sebenarnya
-      pc.onconnectionstatechange = () => {
-        if (pc.connectionState === "connected") setWhipStatus("live");
-        else if (pc.connectionState === "failed") {
-          setWhipStatus("error");
-          setWhipError("Koneksi WebRTC terputus (jaringan/firewall). Coba jaringan lain.");
-        }
-      };
-      setWhipStatus("live");
-    } catch (e) {
-      pcRef.current?.close();
-      pcRef.current = null;
-      setWhipStatus("error");
-      setWhipError((e as Error).message || "Gagal menghubungkan ke WHIP");
-    }
-  }, []);
-
+  // ===== Livepeer: panel siaran RESMI (lvpr.tv) — implementasi Livepeer sendiri,
+  // teruji menangani TURN/codec/jaringan seluler jauh lebih andal daripada WHIP manual =====
+  const [lpKey, setLpKey] = useState<string | null>(null);
   useEffect(() => {
-    return () => {
-      pcRef.current?.close();
-      pcRef.current = null;
-    };
+    setLpKey(localStorage.getItem("livepeerKey")?.trim() || null);
   }, []);
 
   useEffect(() => {
@@ -685,34 +601,37 @@ function OnAir({
 
   return (
     <div className="flex flex-1 flex-col px-4">
-      <div className="relative">
-        <CameraPreview live muted={muted} camOff={camOff} onStreamReady={handleStreamReady} />
-        <div className="absolute right-3 bottom-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-bold text-white">{fmtDur(elapsed)}</div>
-        <div className="absolute bottom-3 left-3 flex gap-1.5">
-          <button onClick={() => setMuted((m) => !m)} className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${muted ? "bg-red-600 text-white" : "bg-white/90 text-stone-800"}`}>
-            {muted ? "🔇" : "🎙️"}
-          </button>
-          <button onClick={() => setCamOff((c) => !c)} className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${camOff ? "bg-red-600 text-white" : "bg-white/90 text-stone-800"}`}>
-            {camOff ? "📷" : "📹"}
-          </button>
+      {lpKey ? (
+        <div>
+          <div className="overflow-hidden rounded-xl bg-stone-900">
+            <iframe
+              src={`https://lvpr.tv/broadcast/${encodeURIComponent(lpKey)}`}
+              className="aspect-video w-full"
+              allow="camera; microphone; autoplay; encrypted-media; picture-in-picture; display-capture"
+              allowFullScreen
+            />
+          </div>
+          <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+            📡 <b>Panel siaran resmi Livepeer</b> (durasi {fmtDur(elapsed)}) — izinkan kamera & mic, lalu tekan tombol{" "}
+            <b>siaran/Go live</b> di dalam panel di atas untuk mulai mengirim video. Jika kamera tidak muncul di panel,{" "}
+            <a href={`https://lvpr.tv/broadcast/${encodeURIComponent(lpKey)}`} target="_blank" rel="noreferrer" className="font-bold underline">
+              buka di tab baru
+            </a>{" "}
+            (siarkan dari sana, kembali ke sini untuk chat & statistik). Disarankan pakai <b>Chrome + Wi-Fi</b> untuk hasil paling stabil.
+          </div>
         </div>
-      </div>
-
-      {whipStatus !== "idle" && (
-        <div
-          className={`mt-2 rounded-xl px-3 py-2 text-xs font-semibold ${
-            whipStatus === "live"
-              ? "border border-green-200 bg-green-100 text-green-700"
-              : whipStatus === "error"
-                ? "border border-red-200 bg-red-100 text-red-700"
-                : "border border-amber-200 bg-amber-100 text-amber-700"
-          }`}
-        >
-          {whipStatus === "live"
-            ? "✅ Terhubung ke Livepeer — kamera HP ini SEDANG SIARAN RIIL (WebRTC)"
-            : whipStatus === "connecting"
-              ? "⏳ Menghubungkan ke Livepeer WebRTC…"
-              : `❌ Livepeer gagal: ${whipError}${/404|retrieve stream|open failed/i.test(whipError) ? " — Key tidak dikenal server. Pastikan yang dipakai adalah STREAM KEY (pola xxxx-xxxx-xxxx-xxxx) dari livepeer.studio → Streams → pilih stream → Stream key, bukan API Key/Playback ID, dan stream-nya belum dihapus." : ""}`}
+      ) : (
+        <div className="relative">
+          <CameraPreview live muted={muted} camOff={camOff} />
+          <div className="absolute right-3 bottom-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-bold text-white">{fmtDur(elapsed)}</div>
+          <div className="absolute bottom-3 left-3 flex gap-1.5">
+            <button onClick={() => setMuted((m) => !m)} className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${muted ? "bg-red-600 text-white" : "bg-white/90 text-stone-800"}`}>
+              {muted ? "🔇" : "🎙️"}
+            </button>
+            <button onClick={() => setCamOff((c) => !c)} className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${camOff ? "bg-red-600 text-white" : "bg-white/90 text-stone-800"}`}>
+              {camOff ? "📷" : "📹"}
+            </button>
+          </div>
         </div>
       )}
 
