@@ -1,0 +1,15 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    container_name: creatoros-mediamtx
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "1935:1935"   # RTMP ingest (Larix/OBS → VPS)
+      - "8889:8889"   # WebRTC/WHIP (opsional, dari browser)
+      - "8189:8189"   # WebRTC ICE-TCP (tembus jaringan yang blokir UDP)
+      - "8189:8189/udp"
+      - "8888:8888"   # HLS preview (tonton hasil: http://IP:8888/live)
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./push.sh:/push.sh:ro

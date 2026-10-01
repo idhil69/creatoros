@@ -1,0 +1,23 @@
+# MediaMTX — CreatorOS multistream station
+# Terima ingest di path "live" (RTMP dari Larix/OBS, atau WHIP dari browser),
+# lalu jalankan push.sh yang meneruskan ke semua RTMP_TARGETS (ffmpeg tee, -c copy).
+
+logLevel: info
+
+rtmp: yes
+rtmpAddress: :1935
+
+# WebRTC/WHIP ingest opsional — dengan ICE-TCP agar bisa tembus jaringan tanpa UDP
+webrtc: yes
+webrtcAddress: :8889
+webrtcICETCPMuxAddress: :8189
+webrtcIPsFromInterfaces: yes
+
+hls: yes
+hlsAddress: :8888
+
+paths:
+  live:
+    # Dipanggil otomatis saat ada video masuk ke path "live"
+    runOnReady: /push.sh
+    runOnReadyRestart: yes

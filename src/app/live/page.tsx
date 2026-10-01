@@ -281,10 +281,20 @@ function Setup({
   const [muted, setMuted] = useState(false);
   const [livepeerKey, setLivepeerKey] = useState("");
   const [livepeerApiKey, setLivepeerApiKey] = useState("");
+  const [relayUrl, setRelayUrl] = useState("");
+  const [vpsIngest, setVpsIngest] = useState("");
+  const [rtmpFb, setRtmpFb] = useState("");
+  const [rtmpIg, setRtmpIg] = useState("");
+  const [rtmpTt, setRtmpTt] = useState("");
 
   useEffect(() => {
     setLivepeerKey(localStorage.getItem("livepeerKey") || "");
     setLivepeerApiKey(localStorage.getItem("livepeerApiKey") || "");
+    setRelayUrl(localStorage.getItem("relayUrl") || "");
+    setVpsIngest(localStorage.getItem("vpsIngest") || "");
+    setRtmpFb(localStorage.getItem("rtmpFb") || "");
+    setRtmpIg(localStorage.getItem("rtmpIg") || "");
+    setRtmpTt(localStorage.getItem("rtmpTt") || "");
   }, []);
 
   useEffect(() => {
@@ -383,6 +393,85 @@ function Setup({
               </button>
             ))}
           </div>
+        </div>
+        <div>
+          <Label>VPS MediaMTX (terbaik — multistream tanpa transcode, panduan docs/VPS_MEDIAMTX.md)</Label>
+          <input
+            className="input font-mono text-xs"
+            placeholder="rtmp://IP-VPS-KAMU:1935/live"
+            value={vpsIngest}
+            onChange={(e) => {
+              setVpsIngest(e.target.value);
+              localStorage.setItem("vpsIngest", e.target.value);
+            }}
+          />
+          <p className="mt-1 text-[10px] text-stone-500">
+            Siarkan sekali dari Larix ke VPS-mu → MediaMTX menggandakan ke YouTube/FB/IG/TikTok serentak (<b>-c copy</b>, CPU nyaris nol). Tombol
+            Larix 1-ketuk di panel merah otomatis mengarah ke VPS ini.
+          </p>
+        </div>
+        <div>
+          <Label>Relay URL (alternatif — kirim video via jalur HTTPS/443, kebal blokir)</Label>
+          <input
+            className="input font-mono text-xs"
+            placeholder="wss://relay-kamu.up.railway.app"
+            value={relayUrl}
+            onChange={(e) => {
+              setRelayUrl(e.target.value);
+              localStorage.setItem("relayUrl", e.target.value);
+            }}
+          />
+          <p className="mt-1 text-[10px] text-stone-500">
+            Server relay kecil milikmu (gratis di Railway/Render — panduan di <b>docs/RELAY.md</b>). Kamera HP dikirim lewat WebSocket (TCP 443,
+            jalur sama dengan HTTPS) lalu relay meneruskannya ke semua platform serentak. Bekerja di jaringan yang memblokir WebRTC.
+          </p>
+          {relayUrl.trim() && (
+            <div className="mt-3 space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              <p className="text-[11px] font-bold text-amber-900">
+                🎯 MULTISTREAM — target tambahan (YouTube otomatis; isi yang lain sekali, tersimpan permanen)
+              </p>
+              <div>
+                <p className="mb-1 text-[10px] font-bold text-stone-600">Facebook (facebook.com/live/producer → Stream key persisten)</p>
+                <input
+                  className="input py-2 font-mono text-[10px]"
+                  placeholder="rtmps://live-api-s.facebook.com:443/rtmp/FB-XXXX..."
+                  value={rtmpFb}
+                  onChange={(e) => {
+                    setRtmpFb(e.target.value);
+                    localStorage.setItem("rtmpFb", e.target.value);
+                  }}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] font-bold text-stone-600">Instagram (instagram.com/live/producer — akun Professional)</p>
+                <input
+                  className="input py-2 font-mono text-[10px]"
+                  placeholder="rtmps://edgetee-upload-...instagram.com:443/rtmp/17XXX..."
+                  value={rtmpIg}
+                  onChange={(e) => {
+                    setRtmpIg(e.target.value);
+                    localStorage.setItem("rtmpIg", e.target.value);
+                  }}
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] font-bold text-stone-600">TikTok (TikTok Live Studio / livecenter — butuh akses LIVE)</p>
+                <input
+                  className="input py-2 font-mono text-[10px]"
+                  placeholder="rtmp://push-rtmp-...tiktokcdn.com/live/stream-XXXX..."
+                  value={rtmpTt}
+                  onChange={(e) => {
+                    setRtmpTt(e.target.value);
+                    localStorage.setItem("rtmpTt", e.target.value);
+                  }}
+                />
+              </div>
+              <p className="text-[10px] leading-relaxed text-stone-500">
+                Format: <b>URL server + / + stream key</b> digabung jadi satu. Kosongkan platform yang tidak dipakai. Panduan lengkap cara ambil key
+                tiap platform ada di <b>docs/RELAY.md</b>.
+              </p>
+            </div>
+          )}
         </div>
         <div>
           <Label>Livepeer Stream Key (opsional — siaran langsung dari browser)</Label>
@@ -562,8 +651,95 @@ function OnAir({
   // ===== Livepeer: panel siaran RESMI (lvpr.tv) — implementasi Livepeer sendiri,
   // teruji menangani TURN/codec/jaringan seluler jauh lebih andal daripada WHIP manual =====
   const [lpKey, setLpKey] = useState<string | null>(null);
+  const [relayUrl, setRelayUrl] = useState<string | null>(null);
+  const [vpsIngest, setVpsIngest] = useState<string | null>(null);
   useEffect(() => {
     setLpKey(localStorage.getItem("livepeerKey")?.trim() || null);
+    setRelayUrl(localStorage.getItem("relayUrl")?.trim() || null);
+    setVpsIngest(localStorage.getItem("vpsIngest")?.trim() || null);
+  }, []);
+
+  // ===== RELAY: kamera → MediaRecorder → WebSocket (TCP 443) → ffmpeg → RTMP YouTube =====
+  const relayWsRef = useRef<WebSocket | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const [relayStatus, setRelayStatus] = useState<"idle" | "connecting" | "live" | "error">("idle");
+  const [relayError, setRelayError] = useState("");
+
+  const startRelay = useCallback(
+    (s: MediaStream) => {
+      const rUrl = localStorage.getItem("relayUrl")?.trim();
+      const yt = stream.external?.youtube;
+      if (!rUrl || relayWsRef.current) return;
+
+      // MULTISTREAM: kumpulkan semua target — YouTube otomatis + FB/IG/TikTok dari setelan
+      const targets: string[] = [];
+      if (yt?.streamKey) targets.push(`rtmps://a.rtmps.youtube.com:443/live2/${yt.streamKey}`);
+      for (const k of ["rtmpFb", "rtmpIg", "rtmpTt"]) {
+        const v = localStorage.getItem(k)?.trim();
+        if (v && /^rtmps?:\/\//.test(v)) targets.push(v);
+      }
+      if (!targets.length) return;
+
+      setRelayStatus("connecting");
+      setRelayError("");
+      try {
+        const base = rUrl.replace(/^http/, "ws").replace(/\/$/, "");
+        const qs = targets.map((t) => `target=${encodeURIComponent(t)}`).join("&");
+        const ws = new WebSocket(`${base}/?${qs}`);
+        relayWsRef.current = ws;
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          const mime = ["video/webm;codecs=h264,opus", "video/webm;codecs=vp8,opus", "video/webm"].find((m) =>
+            MediaRecorder.isTypeSupported(m),
+          );
+          const rec = new MediaRecorder(s, { mimeType: mime, videoBitsPerSecond: 2_000_000, audioBitsPerSecond: 128_000 });
+          recorderRef.current = rec;
+          rec.ondataavailable = (e) => {
+            if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) ws.send(e.data);
+          };
+          rec.start(1000); // kirim potongan tiap 1 detik
+          setRelayStatus("live");
+        };
+        ws.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(String(e.data));
+            if (msg.type === "error") {
+              setRelayStatus("error");
+              setRelayError(msg.message ?? "Relay error");
+            }
+          } catch {}
+        };
+        ws.onerror = () => {
+          setRelayStatus("error");
+          setRelayError("Tidak bisa terhubung ke relay. Cek URL relay & apakah servernya jalan.");
+        };
+        ws.onclose = (e) => {
+          recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
+          recorderRef.current = null;
+          relayWsRef.current = null;
+          if (relayStatus !== "error" && e.code !== 1000) {
+            setRelayStatus("error");
+            setRelayError(e.reason || "Koneksi relay terputus");
+          }
+        };
+      } catch (err) {
+        setRelayStatus("error");
+        setRelayError((err as Error).message);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stream.external?.youtube?.streamKey],
+  );
+
+  useEffect(() => {
+    return () => {
+      try {
+        recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
+      } catch {}
+      relayWsRef.current?.close(1000);
+      relayWsRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -601,7 +777,31 @@ function OnAir({
 
   return (
     <div className="flex flex-1 flex-col px-4">
-      {lpKey ? (
+      {relayUrl ? (
+        <div>
+          <div className="relative">
+            <CameraPreview live muted={muted} camOff={camOff} onStreamReady={startRelay} />
+            <div className="absolute right-3 bottom-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-bold text-white">{fmtDur(elapsed)}</div>
+          </div>
+          <div
+            className={`mt-2 rounded-xl px-3 py-2 text-xs font-semibold ${
+              relayStatus === "live"
+                ? "border border-green-200 bg-green-100 text-green-700"
+                : relayStatus === "error"
+                  ? "border border-red-200 bg-red-100 text-red-700"
+                  : "border border-amber-200 bg-amber-100 text-amber-700"
+            }`}
+          >
+            {relayStatus === "live"
+              ? "✅ Video terkirim via RELAY (WSS 443) → diteruskan serentak ke semua target RTMP — tunggu 20–60 dtk sampai on-air 🔴"
+              : relayStatus === "connecting"
+                ? "⏳ Menghubungkan ke relay…"
+                : relayStatus === "error"
+                  ? `❌ Relay gagal: ${relayError}`
+                  : "⏳ Menyiapkan kamera…"}
+          </div>
+        </div>
+      ) : lpKey ? (
         <div>
           <div className="overflow-hidden rounded-xl bg-stone-900">
             <iframe
@@ -707,6 +907,27 @@ function OnAir({
               🎛 YouTube Studio
             </a>
           </div>
+          <a
+            href={`larix://set/v1?conn[][name]=${encodeURIComponent(vpsIngest ? "VPS MediaMTX (CreatorOS)" : "YouTube (CreatorOS)")}&conn[][url]=${encodeURIComponent(
+              vpsIngest ? vpsIngest : `rtmps://a.rtmps.youtube.com:443/live2/${stream.external.youtube.streamKey}`,
+            )}&conn[][overwrite]=on`}
+            className="btn mt-2 w-full bg-red-600 py-2.5 text-xs text-white hover:bg-red-700"
+          >
+            📲 Siarkan via Larix {vpsIngest ? "→ VPS MediaMTX (multistream semua platform)" : "(setup otomatis 1 ketuk — tanpa OBS)"}
+          </a>
+          <p className="mt-1 text-[10px] leading-relaxed text-red-600">
+            {vpsIngest ? (
+              <>
+                Instal <b>Larix Broadcaster</b> → ketuk tombol di atas (VPS terpasang otomatis) → tekan tombol merah di Larix. MediaMTX di VPS-mu
+                meneruskan ke <b>semua platform serentak tanpa transcode</b>. Kembali ke sini untuk chat & statistik YouTube.
+              </>
+            ) : (
+              <>
+                Cara paling andal dari HP: instal <b>Larix Broadcaster</b> (gratis di Play Store), lalu ketuk tombol di atas — server & key YouTube
+                terpasang otomatis (RTMPS 443, kebal blokir). Tekan tombol merah di Larix, biarkan CreatorOS terbuka untuk chat & statistik.
+              </>
+            )}
+          </p>
           <p className="mt-2 text-[10px] leading-relaxed text-red-600">
             Key ini <b>PERMANEN</b> (sama untuk semua siaran berikutnya). Atur sekali di target multistream Livepeer (atau isi API Key untuk otomatis),
             maka setiap live: kamera HP → Livepeer → YouTube tanpa OBS. Siaran on-air otomatis saat data video masuk, dan berakhir otomatis saat

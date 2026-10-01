@@ -1,0 +1,17 @@
+services:
+  oryx:
+    # Oryx (dulu "SRS Stack") — SRS + web UI: multistream forwarding diatur dari browser
+    image: ossrs/oryx:5
+    container_name: creatoros-oryx
+    restart: unless-stopped
+    ports:
+      - "2022:2022"       # Web UI  → http://IP-VPS:2022
+      - "1935:1935"       # RTMP ingest (Larix/OBS → VPS)
+      - "8080:8080"       # HLS preview
+      - "8000:8000/udp"   # WebRTC (opsional)
+      - "10080:10080/udp" # SRT (opsional, lebih stabil dari RTMP di jaringan jelek)
+    volumes:
+      - oryx-data:/data
+
+volumes:
+  oryx-data:

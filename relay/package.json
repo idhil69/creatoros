@@ -1,0 +1,12 @@
+{
+  "name": "creatoros-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "ws": "^8.18.0"
+  }
+}
