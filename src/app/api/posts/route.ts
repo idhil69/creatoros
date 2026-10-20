@@ -18,12 +18,15 @@ export async function GET() {
   );
 }
 
+import { publishToPlatform } from "@/lib/publisher";
+
 export async function POST(req: Request) {
   const body = (await req.json()) as {
     title: string;
     caption?: string;
     hashtags?: string[];
     mediaType?: "video" | "image" | "short" | "text";
+    mediaUrl?: string | null;
     accountIds: number[];
     scheduledAt?: string | null;
     publishNow?: boolean;
@@ -41,7 +44,7 @@ export async function POST(req: Request) {
     .from(socialAccounts)
     .where(inArray(socialAccounts.id, body.accountIds));
 
-  const status: PostStatus = body.publishNow ? "published" : body.scheduledAt ? "scheduled" : "draft";
+  let initialStatus: PostStatus = body.publishNow ? "publishing" : body.scheduledAt ? "scheduled" : "draft";
   const count = (await db.select({ id: posts.id }).from(posts)).length;
 
   const [post] = await db
@@ -51,29 +54,74 @@ export async function POST(req: Request) {
       caption: body.caption ?? "",
       hashtags: body.hashtags ?? [],
       mediaType: body.mediaType ?? "video",
+      mediaUrl: body.mediaUrl ?? null,
       thumbnailColor: THUMBS[count % THUMBS.length],
-      status,
+      status: initialStatus,
       scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : null,
       publishedAt: body.publishNow ? new Date() : null,
     })
     .returning();
 
-  await db.insert(postTargets).values(
-    accounts.map((a) => ({
-      postId: post.id,
-      accountId: a.id,
-      platform: a.platform,
-      status,
-      externalUrl: body.publishNow ? `https://${a.platform}.com/${a.username}/p/${post.id}` : null,
-      views: body.publishNow ? Math.round(a.followers * 0.08) : 0,
-      likes: body.publishNow ? Math.round(a.followers * 0.006) : 0,
-      comments: body.publishNow ? Math.round(a.followers * 0.0005) : 0,
-      shares: body.publishNow ? Math.round(a.followers * 0.001) : 0,
-    })),
-  );
+  let hasPublished = false;
+
+  for (const a of accounts) {
+    if (body.publishNow) {
+      const pubResult = await publishToPlatform(
+        {
+          title: post.title,
+          caption: post.caption,
+          hashtags: post.hashtags,
+          mediaType: post.mediaType,
+          mediaUrl: post.mediaUrl,
+        },
+        a
+      );
+
+      if (pubResult.success) {
+        hasPublished = true;
+        await db.insert(postTargets).values({
+          postId: post.id,
+          accountId: a.id,
+          platform: a.platform,
+          status: "published",
+          externalUrl: pubResult.externalUrl ?? `https://${a.platform}.com/${a.username}/p/${post.id}`,
+          views: Math.round(a.followers * 0.08),
+          likes: Math.round(a.followers * 0.006),
+          comments: Math.round(a.followers * 0.0005),
+          shares: Math.round(a.followers * 0.001),
+        });
+      } else {
+        await db.insert(postTargets).values({
+          postId: post.id,
+          accountId: a.id,
+          platform: a.platform,
+          status: "failed",
+          errorMessage: pubResult.errorMessage ?? "Gagal mempublikasikan ke platform",
+        });
+      }
+    } else {
+      await db.insert(postTargets).values({
+        postId: post.id,
+        accountId: a.id,
+        platform: a.platform,
+        status: body.scheduledAt ? "scheduled" : "draft",
+        externalUrl: null,
+      });
+    }
+  }
+
+  const finalStatus: PostStatus = body.publishNow
+    ? hasPublished
+      ? "published"
+      : "failed"
+    : body.scheduledAt
+      ? "scheduled"
+      : "draft";
+
+  await db.update(posts).set({ status: finalStatus }).where(eq(posts.id, post.id));
 
   await db.insert(auditLogs).values({
-    action: body.publishNow ? "post.published" : status === "scheduled" ? "post.scheduled" : "post.drafted",
+    action: body.publishNow ? (hasPublished ? "post.published" : "post.failed") : body.scheduledAt ? "post.scheduled" : "post.drafted",
     detail: `"${post.title}" → ${accounts.length} platform`,
   });
 

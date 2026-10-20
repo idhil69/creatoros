@@ -34,9 +34,26 @@ export default function NewPostPage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
 
   const connected = (accounts ?? []).filter((a) => a.status === "connected");
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      setPreviewUrl(dataUrl);
+      setMediaUrl(dataUrl);
+    };
+    reader.readAsDataURL(f);
+  }
 
   async function aiAssist(task: "caption" | "hashtags") {
     if (!title.trim()) return show("Isi judul dulu sebagai topik", "error");
@@ -64,6 +81,7 @@ export default function NewPostPage() {
         caption,
         hashtags: hashtags.split(/\s+/).filter(Boolean).map((h) => h.replace(/^#/, "")),
         mediaType,
+        mediaUrl,
         accountIds: selected,
         publishNow: mode === "now",
         scheduledAt: mode === "schedule" ? new Date(scheduledAt).toISOString() : null,
@@ -98,12 +116,61 @@ export default function NewPostPage() {
         </section>
 
         {mediaType !== "text" && (
-          <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300 bg-white p-6 text-center">
-            <input type="file" className="hidden" accept={mediaType === "image" ? "image/*" : "video/*"} onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)} />
-            <span className="text-3xl">📤</span>
-            <p className="mt-2 text-sm font-semibold">{fileName ?? "Pilih file untuk diunggah"}</p>
-            <p className="text-xs text-stone-500">Mode mock: file tidak dikirim ke server</p>
-          </label>
+          <div>
+            <Label>File media</Label>
+            {!previewUrl ? (
+              <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-amber-300 bg-white p-6 text-center hover:bg-amber-50/50 transition">
+                <input
+                  type="file"
+                  className="hidden"
+                  accept={mediaType === "image" ? "image/*" : "video/*"}
+                  onChange={handleFileChange}
+                />
+                <span className="text-3xl">📁</span>
+                <p className="mt-2 text-sm font-semibold">Pilih file untuk diunggah</p>
+                <p className="text-xs text-stone-500 mt-1">
+                  Mendukung gambar (JPG, PNG) & video (MP4)
+                </p>
+              </label>
+            ) : (
+              <div className="card p-3 border border-amber-200">
+                <div className="flex items-center gap-3">
+                  {mediaType === "image" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={previewUrl}
+                      alt="Preview"
+                      className="h-16 w-16 rounded-lg object-cover border border-amber-100"
+                    />
+                  ) : (
+                    <div className="h-16 w-16 rounded-lg bg-stone-900 flex items-center justify-center text-white text-xl">
+                      🎬
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-stone-900 truncate">{fileName}</p>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      {file ? `${(file.size / (1024 * 1024)).toFixed(2)} MB · ` : ""}
+                      <span className="text-green-600 font-semibold">File siap diunggah ✓</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFile(null);
+                      setFileName(null);
+                      setPreviewUrl(null);
+                      setMediaUrl(null);
+                    }}
+                    className="rounded-full p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 text-xs font-bold"
+                    title="Hapus file"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         <section>

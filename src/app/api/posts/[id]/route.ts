@@ -1,11 +1,13 @@
 import { db } from "@/db";
-import { posts, postTargets, socialAccounts, auditLogs } from "@/db/schema";
+import { posts, postTargets, socialAccounts, auditLogs, type PostStatus } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+import { publishToPlatform } from "@/lib/publisher";
 
 export async function PATCH(req: Request, ctx: Ctx) {
   const { id } = await ctx.params;
@@ -19,28 +21,60 @@ export async function PATCH(req: Request, ctx: Ctx) {
   };
 
   if (body.action === "publish") {
-    await new Promise((r) => setTimeout(r, 1200));
+    const [currentPost] = await db.select().from(posts).where(eq(posts.id, postId));
     const targets = await db.select().from(postTargets).where(eq(postTargets.postId, postId));
+    let hasPublished = false;
+
     for (const t of targets) {
       const [acc] = await db.select().from(socialAccounts).where(eq(socialAccounts.id, t.accountId));
-      const followers = acc?.followers ?? 1000;
-      await db
-        .update(postTargets)
-        .set({
-          status: "published",
-          externalUrl: `https://${t.platform}.com/${acc?.username ?? "user"}/p/${postId}`,
-          views: Math.round(followers * 0.08),
-          likes: Math.round(followers * 0.006),
-          comments: Math.round(followers * 0.0005),
-          shares: Math.round(followers * 0.001),
-        })
-        .where(eq(postTargets.id, t.id));
+      if (!acc) continue;
+
+      const pubResult = await publishToPlatform(
+        {
+          title: currentPost?.title ?? "",
+          caption: currentPost?.caption ?? "",
+          hashtags: currentPost?.hashtags ?? [],
+          mediaType: currentPost?.mediaType ?? "video",
+          mediaUrl: currentPost?.mediaUrl,
+        },
+        acc
+      );
+
+      if (pubResult.success) {
+        hasPublished = true;
+        const followers = acc.followers ?? 1000;
+        await db
+          .update(postTargets)
+          .set({
+            status: "published",
+            externalUrl: pubResult.externalUrl ?? `https://${t.platform}.com/${acc.username}/p/${postId}`,
+            views: Math.round(followers * 0.08),
+            likes: Math.round(followers * 0.006),
+            comments: Math.round(followers * 0.0005),
+            shares: Math.round(followers * 0.001),
+            errorMessage: null,
+          })
+          .where(eq(postTargets.id, t.id));
+      } else {
+        await db
+          .update(postTargets)
+          .set({
+            status: "failed",
+            errorMessage: pubResult.errorMessage ?? "Gagal mempublikasikan ke platform",
+          })
+          .where(eq(postTargets.id, t.id));
+      }
     }
+
+    const finalStatus: PostStatus = hasPublished ? "published" : "failed";
     await db
       .update(posts)
-      .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
+      .set({ status: finalStatus, publishedAt: new Date(), updatedAt: new Date() })
       .where(eq(posts.id, postId));
-    await db.insert(auditLogs).values({ action: "post.published", detail: `Post #${postId}` });
+    await db.insert(auditLogs).values({
+      action: hasPublished ? "post.published" : "post.failed",
+      detail: `Post #${postId} (${hasPublished ? "sukses" : "gagal"})`,
+    });
   } else if (body.action === "unschedule") {
     await db.update(posts).set({ status: "draft", scheduledAt: null, updatedAt: new Date() }).where(eq(posts.id, postId));
     await db.update(postTargets).set({ status: "draft" }).where(eq(postTargets.postId, postId));

@@ -69,9 +69,27 @@ export default function PostDetailPage() {
           <Skeleton className="h-64" />
         ) : (
           <div className="fade-up space-y-4">
-            <div className="flex h-44 items-center justify-center rounded-xl text-6xl shadow-inner" style={{ background: post.thumbnailColor }}>
-              {post.mediaType === "video" ? "🎬" : post.mediaType === "short" ? "📱" : post.mediaType === "image" ? "🖼️" : "📝"}
-            </div>
+            {post.mediaUrl && post.mediaType === "image" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={post.mediaUrl}
+                alt={post.title}
+                className="h-48 w-full rounded-xl object-cover shadow-inner border border-amber-200"
+              />
+            ) : post.mediaUrl && (post.mediaType === "video" || post.mediaType === "short") ? (
+              <video
+                src={post.mediaUrl}
+                controls
+                className="h-48 w-full rounded-xl object-cover bg-black shadow-inner border border-stone-800"
+              />
+            ) : (
+              <div
+                className="flex h-44 items-center justify-center rounded-xl text-6xl shadow-inner"
+                style={{ background: post.thumbnailColor }}
+              >
+                {post.mediaType === "video" ? "🎬" : post.mediaType === "short" ? "📱" : post.mediaType === "image" ? "🖼️" : "📝"}
+              </div>
+            )}
 
             <div className="card p-4">
               <div className="flex items-start justify-between gap-2">
@@ -133,16 +151,32 @@ export default function PostDetailPage() {
                     <div className="flex-1">
                       <p className="text-sm font-semibold">{PLATFORMS[t.platform].name}</p>
                       {t.status === "published" ? (
-                        <div className="flex items-center gap-3 text-xs text-stone-500">
-                          <span className="flex items-center gap-0.5">
-                            <EyeIcon /> {formatNumber(t.views)}
-                          </span>
-                          <span className="flex items-center gap-0.5">
-                            <HeartIcon /> {formatNumber(t.likes)}
-                          </span>
-                          <span>💬 {formatNumber(t.comments)}</span>
-                          <span>↗ {formatNumber(t.shares)}</span>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-3 text-xs text-stone-500">
+                            <span className="flex items-center gap-0.5">
+                              <EyeIcon /> {formatNumber(t.views)}
+                            </span>
+                            <span className="flex items-center gap-0.5">
+                              <HeartIcon /> {formatNumber(t.likes)}
+                            </span>
+                            <span>💬 {formatNumber(t.comments)}</span>
+                            <span>↗ {formatNumber(t.shares)}</span>
+                          </div>
+                          {t.externalUrl && (
+                            <a
+                              href={t.externalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                            >
+                              Buka di {PLATFORMS[t.platform].name} ↗
+                            </a>
+                          )}
                         </div>
+                      ) : t.status === "failed" ? (
+                        <p className="text-xs text-red-600 bg-red-50 rounded-lg p-2 mt-1 border border-red-200">
+                          ⚠️ {t.errorMessage ?? "Gagal dipublikasikan"}
+                        </p>
                       ) : (
                         <p className="text-xs text-stone-500">{t.errorMessage ?? "Menunggu publikasi"}</p>
                       )}
