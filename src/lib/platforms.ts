@@ -30,7 +30,7 @@ export const PLATFORMS: Record<
     color: "#e1306c",
     bg: "bg-pink-50",
     text: "text-pink-600",
-    scopes: ["public_profile", "email"],
+    scopes: ["public_profile"],
     mockUsers: [
       { username: "@kreator.studio", displayName: "Kreator Studio", followers: 86300 },
       { username: "@foodie.jkt", displayName: "Foodie Jakarta", followers: 21900 },
@@ -42,7 +42,7 @@ export const PLATFORMS: Record<
     color: "#1877f2",
     bg: "bg-blue-50",
     text: "text-blue-600",
-    scopes: ["public_profile", "email"],
+    scopes: ["public_profile"],
     mockUsers: [
       { username: "KreatorStudioPage", displayName: "Kreator Studio Page", followers: 42100 },
       { username: "KomunitasKreator", displayName: "Komunitas Kreator", followers: 9800 },

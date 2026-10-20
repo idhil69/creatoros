@@ -41,10 +41,10 @@ export function redirectUri(baseUrl: string, platform: Platform): string {
 
 export const OAUTH_PLATFORMS = {
   facebook: {
-    scopes: ["public_profile", "email"],
+    scopes: ["public_profile"],
   },
   instagram: {
-    scopes: ["public_profile", "email"],
+    scopes: ["public_profile"],
   },
 };
 
