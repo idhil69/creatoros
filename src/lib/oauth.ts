@@ -39,11 +39,20 @@ export function redirectUri(baseUrl: string, platform: Platform): string {
   return `${baseUrl}/api/oauth/${platform}/callback`;
 }
 
+export const OAUTH_PLATFORMS = {
+  facebook: {
+    scopes: ["public_profile", "email"],
+  },
+  instagram: {
+    scopes: ["public_profile", "email"],
+  },
+};
+
 const SCOPES: Record<Platform, string> = {
   youtube:
     "openid email profile https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.force-ssl",
-  facebook: "public_profile,pages_show_list,pages_read_engagement",
-  instagram: "public_profile,pages_show_list,instagram_basic",
+  facebook: OAUTH_PLATFORMS.facebook.scopes.join(","),
+  instagram: OAUTH_PLATFORMS.instagram.scopes.join(","),
   tiktok: "user.info.basic,user.info.profile,user.info.stats",
 };
 
@@ -164,35 +173,53 @@ export async function fetchProfile(platform: Platform, accessToken: string): Pro
   if (platform === "facebook") {
     const me = await (await fetch("https://graph.facebook.com/v21.0/me?fields=id,name", auth)).json();
     if (!me.id) throw new Error(me.error?.message ?? "Tidak bisa membaca profil Facebook");
-    const pages = await (await fetch("https://graph.facebook.com/v21.0/me/accounts?fields=id,name,followers_count,fan_count", auth)).json();
-    const page = pages.data?.[0];
-    if (page) {
-      return {
-        externalId: page.id,
-        username: page.name,
-        displayName: page.name,
-        followers: Number(page.followers_count ?? page.fan_count ?? 0),
-      };
+    try {
+      const pages = await (await fetch("https://graph.facebook.com/v21.0/me/accounts?fields=id,name,followers_count,fan_count", auth)).json();
+      const page = pages.data?.[0];
+      if (page) {
+        return {
+          externalId: page.id,
+          username: page.name,
+          displayName: page.name,
+          followers: Number(page.followers_count ?? page.fan_count ?? 0),
+        };
+      }
+    } catch {
+      // Fallback jika tidak memiliki izin halaman
     }
     return { externalId: me.id, username: me.name, displayName: me.name, followers: 0 };
   }
 
   if (platform === "instagram") {
-    const pages = await (
-      await fetch("https://graph.facebook.com/v21.0/me/accounts?fields=instagram_business_account{id,username,name,followers_count}", auth)
-    ).json();
-    const ig = pages.data?.map((p: { instagram_business_account?: { id: string; username?: string; name?: string; followers_count?: number } }) => p.instagram_business_account).find(Boolean);
-    if (!ig) {
-      throw new Error(
-        "Tidak ditemukan akun Instagram Business/Creator yang tertaut ke Halaman Facebook kamu. Ubah akun IG ke Professional lalu tautkan ke sebuah Halaman.",
-      );
+    try {
+      const pages = await (
+        await fetch("https://graph.facebook.com/v21.0/me/accounts?fields=instagram_business_account{id,username,name,followers_count}", auth)
+      ).json();
+      const ig = pages.data?.map((p: { instagram_business_account?: { id: string; username?: string; name?: string; followers_count?: number } }) => p.instagram_business_account).find(Boolean);
+      if (ig) {
+        return {
+          externalId: ig.id,
+          username: `@${ig.username ?? "instagram"}`,
+          displayName: ig.name ?? ig.username ?? "Instagram",
+          followers: Number(ig.followers_count ?? 0),
+        };
+      }
+    } catch {
+      // Abaikan jika tidak ada akses halaman / bisnis
     }
-    return {
-      externalId: ig.id,
-      username: `@${ig.username ?? "instagram"}`,
-      displayName: ig.name ?? ig.username ?? "Instagram",
-      followers: Number(ig.followers_count ?? 0),
-    };
+
+    // Fallback akun pribadi jika scope dibatasi ke public_profile, email
+    const me = await (await fetch("https://graph.facebook.com/v21.0/me?fields=id,name", auth)).json();
+    if (me.id) {
+      return {
+        externalId: me.id,
+        username: `@${me.name.replace(/\s+/g, "").toLowerCase()}`,
+        displayName: me.name,
+        followers: 0,
+      };
+    }
+
+    throw new Error("Tidak ditemukan akun Instagram yang tertaut.");
   }
 
   // tiktok
