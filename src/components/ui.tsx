@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { Platform, AccountStatus, PostStatus } from "@/db/schema";
 import { PLATFORMS } from "@/lib/platforms";
 import { BackIcon, PlatformIcon } from "./Icons";
@@ -124,23 +124,59 @@ export function useFetch<T>(url: string, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const reload = useCallback(async () => {
-    try {
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error("Gagal memuat data");
-      setData((await res.json()) as T);
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
+  // Dituju lewat rantai promise (bukan async/await) supaya perenderan berikutnya
+  // selalu terjadi setelah jaringan menjawab, bukan sinkron dari dalam effect.
+  const reload = useCallback(() => {
+    fetch(url, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Gagal memuat data"))))
+      .then((json) => {
+        setData(json as T);
+        setError(null);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
   }, [url]);
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reload, ...deps]);
   return { data, loading, error, reload, setData };
+}
+
+// localStorage sebagai external store: membaca nilai aman untuk SSR,
+// dan perubahan dari komponen lain langsung tersinkron (tanpa effect).
+const LS_CHANGED = "creatoros:ls-changed";
+
+function subscribeLocalStorage(key: string, onChange: () => void) {
+  const onLocal = (e: Event) => {
+    if ((e as CustomEvent<{ key?: string }>).detail?.key === key) onChange();
+  };
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === key) onChange();
+  };
+  window.addEventListener(LS_CHANGED, onLocal);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(LS_CHANGED, onLocal);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+export function useLocalStorage(key: string, fallback = ""): [string, (value: string) => void] {
+  const subscribe = useCallback((onChange: () => void) => subscribeLocalStorage(key, onChange), [key]);
+  const value = useSyncExternalStore(
+    subscribe,
+    () => localStorage.getItem(key) ?? fallback,
+    () => fallback,
+  );
+  const setValue = useCallback(
+    (next: string) => {
+      localStorage.setItem(key, next);
+      window.dispatchEvent(new CustomEvent(LS_CHANGED, { detail: { key } }));
+    },
+    [key],
+  );
+  return [value, setValue];
 }
 
 export function Skeleton({ className = "h-16" }: { className?: string }) {

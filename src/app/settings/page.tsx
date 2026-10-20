@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Skeleton, Toast, TopBar, useFetch, useToast } from "@/components/ui";
 import { ChevronIcon, LinkIcon, LiveIcon, SparkleIcon } from "@/components/Icons";
 
@@ -11,14 +11,25 @@ type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoic
 
 export default function SettingsPage() {
   const { data, loading, reload } = useFetch<SettingsRes>("/api/settings");
-  const [local, setLocal] = useState<Record<string, string>>({});
+  // `overrides` null selama user belum mengedit → `local` selalu ikut data server,
+  // jadi tidak perlu effect yang menyalin data ke state.
+  const [overrides, setOverrides] = useState<Record<string, string> | null>(null);
+  const local = overrides ?? data?.settings ?? {};
   const [installEvt, setInstallEvt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installed, setInstalled] = useState(false);
+  const [installedManually, setInstalledManually] = useState(false);
   const { toast, show } = useToast();
 
-  useEffect(() => {
-    if (data) setLocal(data.settings);
-  }, [data]);
+  // Mode standalone dibaca sebagai external store (aman untuk SSR, tanpa setState di effect).
+  const standalone = useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia("(display-mode: standalone)");
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia("(display-mode: standalone)").matches,
+    () => false,
+  );
+  const installed = installedManually || standalone;
 
   useEffect(() => {
     const onPrompt = (e: Event) => {
@@ -26,13 +37,11 @@ export default function SettingsPage() {
       setInstallEvt(e as BeforeInstallPromptEvent);
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
-    if (window.matchMedia("(display-mode: standalone)").matches) setInstalled(true);
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
 
   async function save(patch: Record<string, string>) {
-    const next = { ...local, ...patch };
-    setLocal(next);
+    setOverrides({ ...local, ...patch });
     await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
     show("Setelan disimpan");
     reload();
@@ -54,7 +63,7 @@ export default function SettingsPage() {
                 if (installEvt) {
                   await installEvt.prompt();
                   const { outcome } = await installEvt.userChoice;
-                  if (outcome === "accepted") setInstalled(true);
+                  if (outcome === "accepted") setInstalledManually(true);
                 } else {
                   show("Buka menu browser (⋮) → 'Tambahkan ke layar utama'");
                 }
@@ -72,7 +81,7 @@ export default function SettingsPage() {
             <input
               className="input"
               value={local.creatorName ?? ""}
-              onChange={(e) => setLocal({ ...local, creatorName: e.target.value })}
+              onChange={(e) => setOverrides({ ...local, creatorName: e.target.value })}
               onBlur={() => save({ creatorName: local.creatorName ?? "" })}
             />
           </div>
@@ -130,6 +139,27 @@ export default function SettingsPage() {
               <p className="text-xs text-stone-600">{l.detail}</p>
             </div>
           ))}
+        </Group>
+
+        <Group title="Sesi & Autentikasi">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Admin Terotentikasi</p>
+              <p className="text-xs text-stone-500">Aplikasi dilindungi login kredensial</p>
+            </div>
+            <span className="chip bg-green-100 text-green-700 font-mono text-xs">admin</span>
+          </div>
+          <div className="px-4 py-3">
+            <button
+              onClick={async () => {
+                await fetch("/api/auth/logout", { method: "POST" });
+                window.location.href = "/login";
+              }}
+              className="btn btn-danger w-full py-2.5 text-xs font-bold"
+            >
+              Keluar (Logout)
+            </button>
+          </div>
         </Group>
 
         <p className="pb-4 text-center text-[11px] text-stone-400">

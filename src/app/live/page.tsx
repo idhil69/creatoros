@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LiveMessage, LiveStream, Platform, SocialAccount } from "@/db/schema";
 import { PLATFORMS, formatNumber } from "@/lib/platforms";
-import { PlatformBadge, Sheet, Skeleton, Toast, TopBar, useFetch, useToast } from "@/components/ui";
+import { PlatformBadge, Sheet, Skeleton, Toast, TopBar, useFetch, useLocalStorage, useToast } from "@/components/ui";
 import { CheckIcon, ChevronIcon, LiveIcon, SendIcon, TrashIcon } from "@/components/Icons";
 
 type LiveState = { stream: LiveStream | null; messages: LiveMessage[]; history: LiveStream[] };
@@ -34,10 +34,17 @@ export default function LivePage() {
   const [summaryId, setSummaryId] = useState<number | null>(null);
   const { toast, show } = useToast();
 
-  const poll = useCallback(async () => {
-    const res = await fetch("/api/live", { cache: "no-store" });
-    if (res.ok) setState(await res.json());
-  }, []);
+  // Rantai promise supaya pemanggilan pertama dari effect tidak dianggap menyetel
+  // state secara sinkron (react-hooks/set-state-in-effect).
+  const poll = useCallback(
+    () =>
+      fetch("/api/live", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (json) setState(json as LiveState);
+        }),
+    [],
+  );
 
   useEffect(() => {
     poll();
@@ -88,6 +95,13 @@ function CameraPreview({
   const [errMsg, setErrMsg] = useState("");
   const [facing, setFacing] = useState<"user" | "environment">("user");
   const [attempt, setAttempt] = useState(0);
+
+  // Callback terbaru disimpan di ref: effect kamera hanya bergantung pada [attempt,
+  // facing], jadi kamera tidak ikut restart saat callback induk berganti.
+  const onStreamReadyRef = useRef(onStreamReady);
+  useEffect(() => {
+    onStreamReadyRef.current = onStreamReady;
+  }, [onStreamReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,7 +162,7 @@ function CameraPreview({
         v.srcObject = s;
         v.play().catch(() => {});
       }
-      onStreamReady?.(s);
+      onStreamReadyRef.current?.(s);
       // Meter level suara mic (bukti mic benar-benar aktif)
       if (s.getAudioTracks().length) {
         try {
@@ -273,34 +287,24 @@ function Setup({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
-  const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [latency, setLatency] = useState<"low" | "normal" | "ultra">("low");
   const [busy, setBusy] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [camOff, setCamOff] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [livepeerKey, setLivepeerKey] = useState("");
-  const [livepeerApiKey, setLivepeerApiKey] = useState("");
-  const [relayUrl, setRelayUrl] = useState("");
-  const [vpsIngest, setVpsIngest] = useState("");
-  const [rtmpFb, setRtmpFb] = useState("");
-  const [rtmpIg, setRtmpIg] = useState("");
-  const [rtmpTt, setRtmpTt] = useState("");
+  // Setelan tersimpan dibaca langsung dari localStorage sebagai external store,
+  // jadi tidak perlu effect yang menyalinnya ke state saat mount.
+  const [livepeerKey, setLivepeerKey] = useLocalStorage("livepeerKey");
+  const [livepeerApiKey, setLivepeerApiKey] = useLocalStorage("livepeerApiKey");
+  const [relayUrl, setRelayUrl] = useLocalStorage("relayUrl");
+  const [vpsIngest, setVpsIngest] = useLocalStorage("vpsIngest");
+  const [rtmpFb, setRtmpFb] = useLocalStorage("rtmpFb");
+  const [rtmpIg, setRtmpIg] = useLocalStorage("rtmpIg");
+  const [rtmpTt, setRtmpTt] = useLocalStorage("rtmpTt");
 
-  useEffect(() => {
-    setLivepeerKey(localStorage.getItem("livepeerKey") || "");
-    setLivepeerApiKey(localStorage.getItem("livepeerApiKey") || "");
-    setRelayUrl(localStorage.getItem("relayUrl") || "");
-    setVpsIngest(localStorage.getItem("vpsIngest") || "");
-    setRtmpFb(localStorage.getItem("rtmpFb") || "");
-    setRtmpIg(localStorage.getItem("rtmpIg") || "");
-    setRtmpTt(localStorage.getItem("rtmpTt") || "");
-  }, []);
-
-  useEffect(() => {
-    if (platforms.length === 0 && connectedPlatforms.length) setPlatforms(connectedPlatforms);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectedPlatforms.length]);
+  // Selama user belum memilih sendiri, platform yang dipilih mengikuti akun terhubung.
+  const [picked, setPicked] = useState<Platform[] | null>(null);
+  const platforms = picked ?? connectedPlatforms;
 
   const checklist = [
     { label: "Judul siaran", ok: title.trim().length > 3 },
@@ -402,7 +406,6 @@ function Setup({
             value={vpsIngest}
             onChange={(e) => {
               setVpsIngest(e.target.value);
-              localStorage.setItem("vpsIngest", e.target.value);
             }}
           />
           <p className="mt-1 text-[10px] text-stone-500">
@@ -418,7 +421,6 @@ function Setup({
             value={relayUrl}
             onChange={(e) => {
               setRelayUrl(e.target.value);
-              localStorage.setItem("relayUrl", e.target.value);
             }}
           />
           <p className="mt-1 text-[10px] text-stone-500">
@@ -438,7 +440,6 @@ function Setup({
                   value={rtmpFb}
                   onChange={(e) => {
                     setRtmpFb(e.target.value);
-                    localStorage.setItem("rtmpFb", e.target.value);
                   }}
                 />
               </div>
@@ -450,7 +451,6 @@ function Setup({
                   value={rtmpIg}
                   onChange={(e) => {
                     setRtmpIg(e.target.value);
-                    localStorage.setItem("rtmpIg", e.target.value);
                   }}
                 />
               </div>
@@ -462,7 +462,6 @@ function Setup({
                   value={rtmpTt}
                   onChange={(e) => {
                     setRtmpTt(e.target.value);
-                    localStorage.setItem("rtmpTt", e.target.value);
                   }}
                 />
               </div>
@@ -481,7 +480,6 @@ function Setup({
             value={livepeerKey}
             onChange={(e) => {
               setLivepeerKey(e.target.value);
-              localStorage.setItem("livepeerKey", e.target.value);
             }}
           />
           <p className="mt-1 text-[10px] text-stone-500">
@@ -504,7 +502,6 @@ function Setup({
                   value={livepeerApiKey}
                   onChange={(e) => {
                     setLivepeerApiKey(e.target.value);
-                    localStorage.setItem("livepeerApiKey", e.target.value);
                   }}
                 />
                 <p className="mt-1 text-[10px] text-stone-500">
@@ -534,7 +531,7 @@ function Setup({
               return (
                 <button
                   key={p}
-                  onClick={() => setPlatforms((s) => (on ? s.filter((x) => x !== p) : [...s, p]))}
+                  onClick={() => setPicked(on ? platforms.filter((x) => x !== p) : [...platforms, p])}
                   className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${on ? "border-primary bg-amber-50" : "border-amber-200 bg-white"}`}
                 >
                   <PlatformBadge platform={p} />
@@ -645,19 +642,18 @@ function OnAir({
   const [camOff, setCamOff] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [tick, setTick] = useState(0);
+  // Waktu sekarang disimpan di state agar elapsed tidak memanggil Date.now() saat render.
+  const [now, setNow] = useState(() => Date.now());
   const chatRef = useRef<HTMLDivElement>(null);
 
   // ===== Livepeer: panel siaran RESMI (lvpr.tv) — implementasi Livepeer sendiri,
   // teruji menangani TURN/codec/jaringan seluler jauh lebih andal daripada WHIP manual =====
-  const [lpKey, setLpKey] = useState<string | null>(null);
-  const [relayUrl, setRelayUrl] = useState<string | null>(null);
-  const [vpsIngest, setVpsIngest] = useState<string | null>(null);
-  useEffect(() => {
-    setLpKey(localStorage.getItem("livepeerKey")?.trim() || null);
-    setRelayUrl(localStorage.getItem("relayUrl")?.trim() || null);
-    setVpsIngest(localStorage.getItem("vpsIngest")?.trim() || null);
-  }, []);
+  const [storedLivepeerKey] = useLocalStorage("livepeerKey");
+  const [storedRelayUrl] = useLocalStorage("relayUrl");
+  const [storedVpsIngest] = useLocalStorage("vpsIngest");
+  const lpKey = storedLivepeerKey.trim();
+  const relayUrl = storedRelayUrl.trim();
+  const vpsIngest = storedVpsIngest.trim();
 
   // ===== RELAY: kamera → MediaRecorder → WebSocket (TCP 443) → ffmpeg → RTMP YouTube =====
   const relayWsRef = useRef<WebSocket | null>(null);
@@ -743,15 +739,14 @@ function OnAir({
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
     if (autoScroll && tab === "chat") chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [state.messages.length, autoScroll, tab]);
 
-  const elapsed = stream.startedAt ? Math.floor((Date.now() - new Date(stream.startedAt).getTime()) / 1000) : 0;
-  void tick;
+  const elapsed = stream.startedAt ? Math.floor((now - new Date(stream.startedAt).getTime()) / 1000) : 0;
 
   const action = useCallback(
     async (body: Record<string, unknown>) => {

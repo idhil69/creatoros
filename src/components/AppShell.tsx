@@ -22,6 +22,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  if (pathname === "/login") {
+    return (
+      <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-surface shadow-[0_0_0_1px_rgba(180,83,9,0.08)]">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col bg-surface shadow-[0_0_0_1px_rgba(180,83,9,0.08)] sm:my-0">
       <main className="flex-1 pb-24">{children}</main>

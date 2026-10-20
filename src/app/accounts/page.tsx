@@ -7,22 +7,26 @@ import { PLATFORM_LIST, formatNumber } from "@/lib/platforms";
 import { Avatar, EmptyState, ErrorState, PlatformBadge, Sheet, Skeleton, StatusPill, Toast, TopBar, useFetch, useToast } from "@/components/ui";
 import { ChevronIcon, LinkIcon, PlusIcon } from "@/components/Icons";
 
+// Dibaca saat render pertama (bukan di effect) supaya tidak ada setState sinkron
+// di dalam effect. Aman untuk SSR: window belum ada di server.
+function oauthParam(name: string): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(name);
+}
+
 export default function AccountsPage() {
   const { data, loading, error, reload } = useFetch<SocialAccount[]>("/api/accounts");
   const config = useFetch<Record<Platform, boolean>>("/api/oauth/config");
   const [sheet, setSheet] = useState(false);
   const [connecting, setConnecting] = useState<Platform | null>(null);
-  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [oauthError, setOauthError] = useState<string | null>(() => oauthParam("error"));
+  const [oauthConnected] = useState<string | null>(() => oauthParam("connected"));
   const { toast, show } = useToast();
 
   // Tangani hasil redirect dari OAuth callback (?connected= / ?error=)
   useEffect(() => {
-    const sp = new URLSearchParams(window.location.search);
-    const ok = sp.get("connected");
-    const err = sp.get("error");
-    if (ok) show(`${ok} berhasil terhubung 🎉`);
-    if (err) setOauthError(err);
-    if (ok || err) window.history.replaceState({}, "", "/accounts");
+    if (oauthConnected) show(`${oauthConnected} berhasil terhubung 🎉`);
+    if (oauthConnected || oauthError) window.history.replaceState({}, "", "/accounts");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -32,7 +36,7 @@ export default function AccountsPage() {
     // OAuth asli terkonfigurasi → redirect penuh ke provider
     if (config.data?.[platform] && !simulateError) {
       setConnecting(platform);
-      window.location.href = `/api/oauth/${platform}/start`;
+      window.location.assign(`/api/oauth/${platform}/start`);
       return;
     }
     setConnecting(platform);

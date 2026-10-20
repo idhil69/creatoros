@@ -20,14 +20,18 @@ export default function PostDetailPage() {
   const [form, setForm] = useState({ title: "", caption: "", hashtags: "" });
   const { toast, show } = useToast();
 
-  async function load() {
-    const res = await fetch("/api/posts", { cache: "no-store" });
-    if (!res.ok) return setError("Gagal memuat");
-    const all = (await res.json()) as PostWithTargets[];
-    const p = all.find((x) => x.id === Number(id));
-    if (!p) return setError("Postingan tidak ditemukan");
-    setPost(p);
-    setForm({ title: p.title, caption: p.caption, hashtags: p.hashtags.map((h) => `#${h}`).join(" ") });
+  // Rantai promise (bukan async/await) agar efek panggilan pertama tidak dianggap
+  // menyetel state secara sinkron oleh react-hooks/set-state-in-effect.
+  function load() {
+    fetch("/api/posts", { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<PostWithTargets[]>) : Promise.reject(new Error("Gagal memuat"))))
+      .then((all) => {
+        const p = all.find((x) => x.id === Number(id));
+        if (!p) return setError("Postingan tidak ditemukan");
+        setPost(p);
+        setForm({ title: p.title, caption: p.caption, hashtags: p.hashtags.map((h) => `#${h}`).join(" ") });
+      })
+      .catch((e: Error) => setError(e.message));
   }
   useEffect(() => {
     load();
